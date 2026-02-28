@@ -1,0 +1,139 @@
+:root {
+  --tv-bg-top: #10131a;
+  --tv-bg-bottom: #06070b;
+  --tv-card-bg: #1a1f2b;
+  --tv-card-text: #f3f6ff;
+  --tv-focus: #82c8ff;
+  --tv-focus-shadow: rgba(83, 171, 255, 0.5);
+}
+
+body.tv-layer-active {
+  background: radial-gradient(circle at top, #1a2233 0%, var(--tv-bg-top) 35%, var(--tv-bg-bottom) 100%);
+  color: var(--tv-card-text);
+}
+
+#tv-layer-root {
+  position: relative;
+  z-index: 42;
+  padding: 0.4rem 1.2rem 2rem;
+}
+
+.tv-layer-home {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.tv-layer-row {
+  margin: 0.8rem 0;
+}
+
+.tv-layer-row-title {
+  margin: 0 0 0.75rem 0.4rem;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #f6f8fd;
+}
+
+.tv-layer-row-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: clamp(16rem, 19vw, 22rem);
+  gap: 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.55rem 0.35rem 1.1rem;
+  scrollbar-width: none;
+}
+
+.tv-layer-row-track::-webkit-scrollbar {
+  display: none;
+}
+
+.tv-layer-card {
+  display: block;
+  text-decoration: none;
+  color: var(--tv-card-text);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(29, 34, 46, 0.94), rgba(15, 18, 26, 0.98));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+  outline: none;
+  overflow: hidden;
+  transform: scale(1);
+  transition: transform 170ms ease, box-shadow 170ms ease, filter 170ms ease;
+}
+
+.tv-layer-card img,
+.tv-layer-card video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+}
+
+.tv-layer-card-meta {
+  padding: 0.75rem 0.8rem 0.95rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  min-height: 3.1rem;
+}
+
+.tv-layer-card.tv-focused,
+.tv-layer-card:focus-visible {
+  transform: scale(1.07);
+  filter: brightness(1.05);
+  box-shadow: 0 0 0 3px var(--tv-focus), 0 12px 28px var(--tv-focus-shadow), 0 18px 38px rgba(0, 0, 0, 0.46);
+}
+
+.tv-layer-controls {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(11, 14, 22, 0.72);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
+  font: 500 12px/1.2 Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+.tv-layer-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tv-layer-controls input {
+  accent-color: #7ebef2;
+}
+
+/* Minimal overlay in player mode */
+body.tv-layer-active:not(.tv-hide-chat) .channel-root__player-container,
+body.tv-layer-active .video-player {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Hide regions based on toggles */
+body.tv-hide-chat [data-a-target='right-column'],
+body.tv-hide-chat [data-test-selector='chat-room-component-layout'],
+body.tv-hide-chat .chat-shell {
+  display: none !important;
+}
+
+body.tv-hide-sidebar [data-a-target='side-nav'],
+body.tv-hide-sidebar nav[aria-label*='Navigation'],
+body.tv-hide-sidebar nav[aria-label*='navigation'] {
+  display: none !important;
+}
+
+body.tv-hide-panels [data-a-target*='panel'],
+body.tv-hide-panels [data-test-selector*='panel'],
+body.tv-hide-panels .channel-panels,
+body.tv-hide-panels .about-section {
+  display: none !important;
+}
