@@ -24,5 +24,3 @@ This repository is structured so the userscript and CSS can later be reused in a
 - Keep visual rules isolated in `/userscripts/css`.
 - Introduce platform-specific key-mapping and lifecycle hooks later.
 - Add remote-safe performance budgets once WebView integration starts.
-
-- Performance note: this version decorates existing Twitch cards instead of cloning/rebuilding large DOM sections, which keeps page load and navigation responsive on low-power TV hardware.

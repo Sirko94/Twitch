@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Twitch TV Layer
 // @namespace    https://github.com/Sirko94/Twitch
-// @version      0.2.0
-// @description  TV-first Twitch layer with fast focus navigation and lightweight UI toggles.
+// @version      0.1.0
+// @description  Apple-TV-style Twitch UI layer with row layout, spatial navigation, and TV-focused toggles.
 // @author       Sirko94
 // @match        https://www.twitch.tv/*
 // @grant        GM_addStyle
@@ -12,10 +12,10 @@
 (() => {
   'use strict';
 
+  const SCRIPT_ROOT_CLASS = 'tv-layer-active';
+  const STYLE_ID = 'tv-layer-style-inline-fallback';
+  const UI_ROOT_ID = 'tv-layer-root';
   const STORAGE_KEY = 'tvLayerSettings';
-  const STYLE_MARKER_ID = 'tv-layer-style-marker';
-  const TOGGLE_UI_ID = 'tv-layer-controls';
-  const FOCUSABLE_SELECTOR = '.tv-focusable-card';
 
   const DEFAULT_SETTINGS = {
     hideChat: true,
@@ -23,22 +23,28 @@
     hidePanels: true
   };
 
-  let focusedIndex = -1;
-  let routeKey = '';
-  let rafScheduled = false;
-
   const state = {
     settings: loadSettings(),
-    focusables: [],
-    rowMap: new Map()
+    rowState: {
+      active: false,
+      focusables: [],
+      rowMap: new Map(),
+      focusedIndex: -1
+    }
   };
 
-  const INLINE_FALLBACK_CSS = `
-    body.tv-layer-active .tv-focusable-card { border-radius: 12px; outline: none; transition: transform .14s ease, box-shadow .14s ease; }
-    body.tv-layer-active .tv-focusable-card.tv-focused,
-    body.tv-layer-active .tv-focusable-card:focus-visible { transform: scale(1.05); box-shadow: 0 0 0 3px rgba(130,200,255,.85), 0 10px 22px rgba(0,0,0,.35); }
-    #${TOGGLE_UI_ID} { position: fixed; top: 10px; right: 10px; z-index: 9999; display: grid; gap: .4rem; background: rgba(10,10,16,.7); border-radius: 10px; padding: .6rem .7rem; color: #fff; font: 500 12px/1.2 system-ui,sans-serif; }
-    #${TOGGLE_UI_ID} label { display: flex; align-items: center; gap: .4rem; }
+  const CSS_FALLBACK = `
+    #${UI_ROOT_ID} { position: relative; z-index: 40; }
+    .tv-layer-row { margin: 1.4rem 0; }
+    .tv-layer-row-title { color: #fff; font-size: 1.4rem; font-weight: 700; margin: 0 0 .6rem .8rem; }
+    .tv-layer-row-track { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(16rem, 22rem); gap: .9rem; overflow-x: auto; padding: .4rem .8rem 1rem; }
+    .tv-layer-card { display: block; color: inherit; text-decoration: none; border-radius: 14px; overflow: hidden; background: #1b1d22; outline: none; transform: scale(1); transition: transform .16s ease, box-shadow .16s ease; }
+    .tv-layer-card img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; }
+    .tv-layer-card-meta { padding: .65rem .7rem .9rem; color: #e9ecf1; font-size: .88rem; }
+    .tv-layer-card:focus-visible,
+    .tv-layer-card.tv-focused { transform: scale(1.06); box-shadow: 0 0 0 3px rgba(124, 194, 255, .9), 0 12px 24px rgba(0, 0, 0, .45); }
+    .tv-layer-controls { position: fixed; top: 1rem; right: 1rem; z-index: 9999; display: grid; gap: .4rem; background: rgba(10,10,12,.7); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: .7rem; color: #fff; font: 500 12px/1.2 system-ui, sans-serif; }
+    .tv-layer-controls label { display: flex; gap: .45rem; align-items: center; white-space: nowrap; }
   `;
 
   function loadSettings() {
@@ -78,206 +84,274 @@
     const body = document.body;
     if (!body) return;
 
-    body.classList.add('tv-layer-active');
     body.classList.toggle('tv-hide-chat', !!state.settings.hideChat);
     body.classList.toggle('tv-hide-sidebar', !!state.settings.hideSidebar);
     body.classList.toggle('tv-hide-panels', !!state.settings.hidePanels);
+    body.classList.toggle(SCRIPT_ROOT_CLASS, true);
   }
 
-  function ensureToggleUI() {
-    if (!document.body) return;
+  function ensureStyles() {
+    if (document.getElementById(STYLE_ID)) return;
 
-    const old = document.getElementById(TOGGLE_UI_ID);
-    if (old) old.remove();
+    // Attempt local relative CSS first (works in extension/local setups that allow relative fetch).
+    fetch('/userscripts/css/twitch-tv-layer.css')
+      .then((response) => (response.ok ? response.text() : Promise.reject(new Error('missing local css'))))
+      .then((css) => GM_addStyle(css))
+      .catch(() => {
+        GM_addStyle(CSS_FALLBACK);
+      })
+      .finally(() => {
+        const marker = document.createElement('style');
+        marker.id = STYLE_ID;
+        marker.textContent = '/* style marker */';
+        document.head.appendChild(marker);
+      });
+  }
 
-    const root = document.createElement('section');
-    root.id = TOGGLE_UI_ID;
-    root.setAttribute('aria-label', 'TV Layer toggles');
+  function createControls() {
+    const existing = document.querySelector('.tv-layer-controls');
+    if (existing) existing.remove();
 
-    root.append(
-      createToggle('Hide chat', 'hideChat'),
-      createToggle('Hide sidebar', 'hideSidebar'),
-      createToggle('Hide panels', 'hidePanels')
-    );
+    const controls = document.createElement('section');
+    controls.className = 'tv-layer-controls';
+    controls.setAttribute('aria-label', 'TV Layer Toggles');
 
-    document.body.appendChild(root);
+    controls.appendChild(createToggle('Hide chat', 'hideChat'));
+    controls.appendChild(createToggle('Hide sidebar', 'hideSidebar'));
+    controls.appendChild(createToggle('Hide panels', 'hidePanels'));
+
+    document.body.appendChild(controls);
   }
 
   function createToggle(labelText, key) {
     const label = document.createElement('label');
     const input = document.createElement('input');
-    const text = document.createElement('span');
-
     input.type = 'checkbox';
     input.checked = !!state.settings[key];
     input.addEventListener('change', () => {
       state.settings[key] = input.checked;
       saveSettings();
       applyToggleClasses();
-      scheduleRefresh();
     });
 
+    const text = document.createElement('span');
     text.textContent = labelText;
+
     label.append(input, text);
     return label;
   }
 
-  function isHomeRoute() {
-    return location.pathname === '/' || location.pathname === '/directory';
-  }
-
-  function clearFocusableMarks() {
-    document.querySelectorAll(FOCUSABLE_SELECTOR).forEach((el) => {
-      el.classList.remove('tv-focusable-card', 'tv-focused');
-      el.removeAttribute('data-tv-row');
-      el.removeAttribute('data-tv-col');
-      el.tabIndex = -1;
-    });
-  }
-
-  function collectHomeCards() {
-    const main = document.querySelector('main');
-    if (!main) return [];
-
-    const anchors = [...main.querySelectorAll('a[href]')];
-    return anchors
-      .filter((a) => {
-        const href = a.getAttribute('href') || '';
-        if (!href || href.startsWith('#')) return false;
-        if (href.includes('/settings') || href.includes('/downloads')) return false;
-        if (!a.querySelector('img, video, [data-a-target*="preview-card"]')) return false;
-        const rect = a.getBoundingClientRect();
-        return rect.width > 120 && rect.height > 80;
+  function collectCardCandidates() {
+    // Prefer card-like links containing media, and avoid control links.
+    const links = [...document.querySelectorAll('a[href]')];
+    return links
+      .filter((link) => {
+        const href = link.getAttribute('href') || '';
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+        if (href.includes('/settings') || href.includes('/subscriptions')) return false;
+        if (!link.querySelector('img, video, [data-a-target="preview-card-image-link"]')) return false;
+        const box = link.getBoundingClientRect();
+        return box.width > 80 && box.height > 60;
       })
-      .slice(0, 80);
+      .slice(0, 120);
   }
 
-  function groupRows(cards) {
-    const buckets = [];
+  function groupIntoRows(candidates) {
+    const rowsByY = [];
 
-    cards.forEach((card) => {
-      const y = Math.round(card.getBoundingClientRect().top + window.scrollY);
-      const row = buckets.find((r) => Math.abs(r.y - y) < 48);
-      if (row) {
-        row.items.push(card);
+    candidates.forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      const y = Math.round(rect.top + window.scrollY);
+      const bucket = rowsByY.find((row) => Math.abs(row.y - y) < 44);
+      if (bucket) {
+        bucket.items.push(el);
       } else {
-        buckets.push({ y, items: [card] });
+        rowsByY.push({ y, items: [el] });
       }
     });
 
-    return buckets
+    return rowsByY
       .sort((a, b) => a.y - b.y)
       .map((row) => row.items.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left))
       .filter((row) => row.length >= 3)
-      .slice(0, 10);
+      .slice(0, 8);
+  }
+
+  function buildRowLayout() {
+    const path = location.pathname;
+    if (path !== '/' && path !== '/directory') return;
+
+    const main = document.querySelector('main');
+    if (!main) return;
+
+    const candidates = collectCardCandidates();
+    if (candidates.length < 6) return;
+
+    const rows = groupIntoRows(candidates);
+    if (!rows.length) return;
+
+    const existing = document.getElementById(UI_ROOT_ID);
+    if (existing) existing.remove();
+
+    const root = document.createElement('section');
+    root.id = UI_ROOT_ID;
+    root.className = 'tv-layer-home';
+
+    rows.forEach((items, index) => {
+      const row = document.createElement('section');
+      row.className = 'tv-layer-row';
+      row.dataset.rowIndex = String(index);
+
+      const title = document.createElement('h2');
+      title.className = 'tv-layer-row-title';
+      title.textContent = `Row ${index + 1}`;
+
+      const track = document.createElement('div');
+      track.className = 'tv-layer-row-track';
+
+      items.forEach((item, colIndex) => {
+        const card = createCard(item, index, colIndex);
+        track.appendChild(card);
+      });
+
+      row.append(title, track);
+      root.appendChild(row);
+    });
+
+    main.prepend(root);
+    state.rowState.active = true;
+    refreshFocusableMap();
+    ensureFocus();
+  }
+
+  function createCard(sourceLink, rowIndex, colIndex) {
+    const card = document.createElement('a');
+    card.className = 'tv-layer-card';
+    card.href = sourceLink.href;
+    card.dataset.row = String(rowIndex);
+    card.dataset.col = String(colIndex);
+    card.tabIndex = -1;
+
+    const media = sourceLink.querySelector('img, video');
+    if (media) {
+      const mediaClone = media.cloneNode(true);
+      if (mediaClone.tagName === 'VIDEO') {
+        mediaClone.muted = true;
+        mediaClone.loop = true;
+        mediaClone.autoplay = true;
+      }
+      card.appendChild(mediaClone);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'tv-layer-card-meta';
+    const titleNode = sourceLink.querySelector('h3, h2, [title], p, span');
+    meta.textContent = titleNode?.textContent?.trim() || sourceLink.getAttribute('aria-label') || sourceLink.href;
+
+    card.appendChild(meta);
+    return card;
   }
 
   function refreshFocusableMap() {
-    state.focusables = [...document.querySelectorAll(FOCUSABLE_SELECTOR)].filter((el) => el.offsetParent !== null);
-    state.rowMap = new Map();
+    const focusables = [...document.querySelectorAll('.tv-layer-card')].filter((el) => el.offsetParent !== null);
+    const rowMap = new Map();
 
-    state.focusables.forEach((el, idx) => {
-      const row = Number(el.dataset.tvRow || 0);
-      const col = Number(el.dataset.tvCol || 0);
-      if (!state.rowMap.has(row)) state.rowMap.set(row, []);
-      state.rowMap.get(row).push({ el, idx, row, col });
+    focusables.forEach((el, index) => {
+      const row = Number(el.dataset.row || 0);
+      const col = Number(el.dataset.col || 0);
+      if (!rowMap.has(row)) rowMap.set(row, []);
+      rowMap.get(row).push({ el, index, row, col });
     });
 
-    if (focusedIndex >= state.focusables.length) focusedIndex = 0;
-  }
+    state.rowState.focusables = focusables;
+    state.rowState.rowMap = rowMap;
 
-  function markFocusablesFromExistingDOM() {
-    clearFocusableMarks();
-
-    if (!isHomeRoute()) {
-      refreshFocusableMap();
-      return;
+    if (state.rowState.focusedIndex >= focusables.length) {
+      state.rowState.focusedIndex = 0;
     }
-
-    const rows = groupRows(collectHomeCards());
-    rows.forEach((row, rowIndex) => {
-      row.forEach((card, colIndex) => {
-        card.classList.add('tv-focusable-card');
-        card.dataset.tvRow = String(rowIndex);
-        card.dataset.tvCol = String(colIndex);
-        card.tabIndex = -1;
-      });
-    });
-
-    refreshFocusableMap();
   }
 
-  function setFocus(index) {
-    if (!state.focusables.length) return;
+  function setFocusedIndex(index) {
+    const focusables = state.rowState.focusables;
+    if (!focusables.length) return;
 
-    focusedIndex = Math.max(0, Math.min(index, state.focusables.length - 1));
-    state.focusables.forEach((el, i) => {
-      const active = i === focusedIndex;
-      el.classList.toggle('tv-focused', active);
-      el.tabIndex = active ? 0 : -1;
+    const bounded = Math.max(0, Math.min(index, focusables.length - 1));
+    state.rowState.focusedIndex = bounded;
+
+    focusables.forEach((el, i) => {
+      el.classList.toggle('tv-focused', i === bounded);
+      el.tabIndex = i === bounded ? 0 : -1;
     });
 
-    const focused = state.focusables[focusedIndex];
+    const focused = focusables[bounded];
     focused.focus({ preventScroll: true });
     focused.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
 
   function ensureFocus() {
     refreshFocusableMap();
-    if (!state.focusables.length) return;
-    if (focusedIndex < 0) return setFocus(0);
-    setFocus(focusedIndex);
-  }
+    if (!state.rowState.focusables.length) return;
 
-  function navigate(direction) {
-    const current = state.focusables[focusedIndex];
-    if (!current) return;
-
-    const row = Number(current.dataset.tvRow || 0);
-    const col = Number(current.dataset.tvCol || 0);
-
-    if (direction === 'left' || direction === 'right') {
-      const delta = direction === 'left' ? -1 : 1;
-      const target = state.focusables.find((el) => Number(el.dataset.tvRow) === row && Number(el.dataset.tvCol) === col + delta);
-      if (target) setFocus(state.focusables.indexOf(target));
+    if (state.rowState.focusedIndex < 0) {
+      setFocusedIndex(0);
       return;
     }
 
-    const deltaRow = direction === 'up' ? -1 : 1;
-    const nextRow = state.rowMap.get(row + deltaRow);
-    if (!nextRow?.length) return;
+    setFocusedIndex(state.rowState.focusedIndex);
+  }
 
-    let best = nextRow[0];
-    let score = Math.abs(best.col - col);
-    for (const candidate of nextRow) {
-      const candidateScore = Math.abs(candidate.col - col);
-      if (candidateScore < score) {
+  function navigate(direction) {
+    const current = state.rowState.focusables[state.rowState.focusedIndex];
+    if (!current) return;
+
+    const row = Number(current.dataset.row || 0);
+    const col = Number(current.dataset.col || 0);
+
+    if (direction === 'left' || direction === 'right') {
+      const delta = direction === 'left' ? -1 : 1;
+      const target = state.rowState.focusables.find((el) =>
+        Number(el.dataset.row) === row && Number(el.dataset.col) === col + delta
+      );
+      if (target) setFocusedIndex(state.rowState.focusables.indexOf(target));
+      return;
+    }
+
+    const rowDelta = direction === 'up' ? -1 : 1;
+    const targetRow = state.rowState.rowMap.get(row + rowDelta);
+    if (!targetRow || !targetRow.length) return;
+
+    let best = targetRow[0];
+    let bestScore = Math.abs(best.col - col);
+
+    for (const candidate of targetRow) {
+      const score = Math.abs(candidate.col - col);
+      if (score < bestScore) {
         best = candidate;
-        score = candidateScore;
+        bestScore = score;
       }
     }
 
-    setFocus(best.idx);
+    setFocusedIndex(best.index);
   }
 
   function handleKeydown(event) {
-    if (!state.focusables.length) return;
+    if (!state.rowState.active) return;
 
-    const map = {
+    const keyMap = {
       ArrowLeft: 'left',
       ArrowRight: 'right',
       ArrowUp: 'up',
       ArrowDown: 'down'
     };
 
-    if (map[event.key]) {
+    if (keyMap[event.key]) {
       event.preventDefault();
-      navigate(map[event.key]);
+      navigate(keyMap[event.key]);
       return;
     }
 
     if (event.key === 'Enter') {
-      const focused = state.focusables[focusedIndex];
+      const focused = state.rowState.focusables[state.rowState.focusedIndex];
       if (focused) {
         event.preventDefault();
         focused.click();
@@ -286,61 +360,39 @@
     }
 
     if (event.key === 'Escape' || event.key === 'Backspace') {
-      const controls = document.getElementById(TOGGLE_UI_ID);
-      if (controls?.matches(':focus-within')) {
+      const controls = document.querySelector('.tv-layer-controls');
+      if (controls && controls.matches(':focus-within')) {
         event.preventDefault();
         ensureFocus();
+        return;
       }
     }
   }
 
-  function scheduleRefresh() {
-    if (rafScheduled) return;
-    rafScheduled = true;
-
-    requestAnimationFrame(() => {
-      rafScheduled = false;
-      markFocusablesFromExistingDOM();
-      ensureFocus();
-    });
-  }
-
-  function handleRouteOrContentUpdate() {
-    const newRouteKey = `${location.pathname}${location.search}`;
-    if (newRouteKey !== routeKey) {
-      routeKey = newRouteKey;
-      focusedIndex = -1;
-    }
-
-    applyToggleClasses();
-    scheduleRefresh();
-  }
-
-  function setupObservers() {
-    const main = document.querySelector('main');
-    if (!main) return;
-
-    // Observe only the main content container to avoid full-page mutation storms.
-    const observer = new MutationObserver(() => {
-      scheduleRefresh();
-    });
-
-    observer.observe(main, { childList: true, subtree: true });
-  }
-
   function boot() {
     if (!document.body) return;
-
     ensureStyles();
-    ensureToggleUI();
-    handleRouteOrContentUpdate();
-    setupObservers();
+    applyToggleClasses();
+    createControls();
+    buildRowLayout();
+    ensureFocus();
   }
 
+  const observer = new MutationObserver(() => {
+    if (!document.body) return;
+    applyToggleClasses();
+
+    if (location.pathname === '/' || location.pathname === '/directory') {
+      buildRowLayout();
+      ensureFocus();
+    }
+  });
+
   document.addEventListener('keydown', handleKeydown, { capture: true });
-  window.addEventListener('popstate', handleRouteOrContentUpdate);
-  window.addEventListener('hashchange', handleRouteOrContentUpdate);
+  window.addEventListener('popstate', boot);
+  window.addEventListener('hashchange', boot);
   window.addEventListener('load', boot);
 
   boot();
+  observer.observe(document.documentElement, { childList: true, subtree: true });
 })();
