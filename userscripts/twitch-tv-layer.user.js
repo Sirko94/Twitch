@@ -61,6 +61,25 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.settings));
   }
 
+  function ensureStyles() {
+    if (document.getElementById(STYLE_MARKER_ID)) return;
+
+    // Tampermonkey cannot reliably fetch local repo files on twitch.tv.
+    // Keep remote fetch optional and always provide a small fallback to avoid blocking startup.
+    fetch('https://raw.githubusercontent.com/Sirko94/Twitch/main/userscripts/css/twitch-tv-layer.css', {
+      cache: 'force-cache'
+    })
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error('css fetch failed'))))
+      .then((css) => GM_addStyle(css))
+      .catch(() => GM_addStyle(INLINE_FALLBACK_CSS))
+      .finally(() => {
+        const marker = document.createElement('style');
+        marker.id = STYLE_MARKER_ID;
+        marker.textContent = '/* tv-layer marker */';
+        document.head.appendChild(marker);
+      });
+  }
+
   function applyToggleClasses() {
     const body = document.body;
     if (!body) return;
