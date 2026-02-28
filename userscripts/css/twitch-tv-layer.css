@@ -1,0 +1,88 @@
+:root {
+  --tv-bg-top: #10131a;
+  --tv-bg-bottom: #06070b;
+  --tv-card-text: #f3f6ff;
+  --tv-focus: #82c8ff;
+  --tv-focus-shadow: rgba(83, 171, 255, 0.5);
+}
+
+body.tv-layer-active {
+  background: radial-gradient(circle at top, #1a2233 0%, var(--tv-bg-top) 35%, var(--tv-bg-bottom) 100%);
+  color: var(--tv-card-text);
+}
+
+/* We style existing Twitch cards directly to avoid expensive DOM cloning/rebuilds. */
+body.tv-layer-active .tv-focusable-card {
+  display: block;
+  border-radius: 16px;
+  overflow: hidden;
+  outline: none;
+  transform: scale(1);
+  transform-origin: center center;
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+body.tv-layer-active .tv-focusable-card img,
+body.tv-layer-active .tv-focusable-card video {
+  border-radius: 16px;
+}
+
+body.tv-layer-active .tv-focusable-card.tv-focused,
+body.tv-layer-active .tv-focusable-card:focus-visible {
+  transform: scale(1.06);
+  filter: brightness(1.04);
+  box-shadow: 0 0 0 3px var(--tv-focus), 0 12px 28px var(--tv-focus-shadow), 0 18px 38px rgba(0, 0, 0, 0.46);
+}
+
+#tv-layer-controls {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(11, 14, 22, 0.72);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
+  color: #fff;
+  font: 500 12px/1.2 Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+#tv-layer-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+#tv-layer-controls input {
+  accent-color: #7ebef2;
+}
+
+/* Minimal overlay in player mode */
+body.tv-layer-active .video-player {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Hide regions based on toggles */
+body.tv-hide-chat [data-a-target='right-column'],
+body.tv-hide-chat [data-test-selector='chat-room-component-layout'],
+body.tv-hide-chat .chat-shell {
+  display: none !important;
+}
+
+body.tv-hide-sidebar [data-a-target='side-nav'],
+body.tv-hide-sidebar nav[aria-label*='Navigation'],
+body.tv-hide-sidebar nav[aria-label*='navigation'] {
+  display: none !important;
+}
+
+body.tv-hide-panels [data-a-target*='panel'],
+body.tv-hide-panels [data-test-selector*='panel'],
+body.tv-hide-panels .channel-panels,
+body.tv-hide-panels .about-section {
+  display: none !important;
+}
